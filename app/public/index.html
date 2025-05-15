@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MIDI Clock</title>
+    <style>
+      :root {
+        /* macOS dark mode colors */
+        --bg-color: #2e2e2e;
+        --bg-secondary: #3a3a3a;
+        --text-color: #e4e4e4;
+        --text-secondary: #a0a0a0;
+        --border-color: #4e4e4e;
+        --accent-color: #0084ff;
+        --accent-hover: #0065c5;
+        --danger-color: #ff453a;
+        --success-color: #34c759;
+        --warning-color: #ff9f0a;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          Helvetica, Arial, sans-serif;
+        margin: 0;
+        padding: 0;
+        background-color: var(--bg-color);
+        color: var(--text-color);
+        height: 100vh;
+        overflow: hidden;
+        user-select: none; /* Prevent text selection */
+        -webkit-user-select: none;
+        -webkit-app-region: drag; /* Make the window draggable */
+      }
+
+      button,
+      input,
+      .switch,
+      .non-draggable {
+        -webkit-app-region: no-drag; /* Allow interaction with controls */
+      }
+
+      .container {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        width: 100%;
+        max-width: 360px;
+        overflow: hidden;
+      }
+
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 15px;
+        border-bottom: 1px solid var(--border-color);
+        background-color: var(--bg-color);
+      }
+
+      .app-title {
+        font-size: 16px;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .app-title img {
+        width: 18px;
+        height: 18px;
+      }
+
+      .header-controls {
+        display: flex;
+        gap: 10px;
+      }
+
+      .main {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        padding: 15px;
+        overflow-y: auto;
+      }
+
+      .controls {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 10px 0;
+      }
+
+      .bpm-display {
+        font-size: 72px;
+        font-weight: 300;
+        margin: 10px 0;
+        text-align: center;
+      }
+
+      .bpm-controls {
+        display: flex;
+        align-items: center;
+        margin-bottom: 20px;
+        width: 100%;
+        justify-content: center;
+      }
+
+      .bpm-slider {
+        width: 200px;
+        margin: 0 10px;
+        -webkit-appearance: none;
+        appearance: none;
+        height: 4px;
+        background: var(--border-color);
+        border-radius: 2px;
+        outline: none;
+      }
+
+      .bpm-slider::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: var(--accent-color);
+        cursor: pointer;
+      }
+
+      .transport-controls {
+        display: flex;
+        justify-content: center;
+        gap: 10px;
+        margin-bottom: 20px;
+      }
+
+      .device-list {
+        overflow-y: auto;
+        border-top: 1px solid var(--border-color);
+        padding-top: 15px;
+      }
+
+      .device-list h2 {
+        font-size: 14px;
+        font-weight: 500;
+        margin-bottom: 10px;
+        color: var(--text-secondary);
+      }
+
+      .device {
+        background-color: var(--bg-secondary);
+        border-radius: 6px;
+        margin-bottom: 8px;
+        padding: 8px 12px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 13px;
+      }
+
+      button {
+        background-color: var(--bg-secondary);
+        color: var(--text-color);
+        border: none;
+        border-radius: 6px;
+        padding: 8px 16px;
+        cursor: pointer;
+        font-size: 13px;
+        transition: background-color 0.2s;
+      }
+
+      button:hover {
+        background-color: #4a4a4a;
+      }
+
+      button.primary {
+        background-color: var(--accent-color);
+      }
+
+      button.primary:hover {
+        background-color: var(--accent-hover);
+      }
+
+      button.icon-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        padding: 0;
+        font-size: 16px;
+        border-radius: 50%;
+      }
+
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      /* Toggle switch styling */
+      .switch {
+        position: relative;
+        display: inline-block;
+        width: 36px;
+        height: 20px;
+      }
+
+      .switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+
+      .slider {
+        position: absolute;
+        cursor: pointer;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: var(--bg-color);
+        transition: 0.3s;
+        border-radius: 20px;
+        border: 1px solid var(--border-color);
+      }
+
+      .slider:before {
+        position: absolute;
+        content: "";
+        height: 16px;
+        width: 16px;
+        left: 2px;
+        bottom: 1px;
+        background-color: var(--text-color);
+        transition: 0.3s;
+        border-radius: 50%;
+      }
+
+      input:checked + .slider {
+        background-color: var(--accent-color);
+        border-color: var(--accent-color);
+      }
+
+      input:focus + .slider {
+        box-shadow: 0 0 1px var(--accent-color);
+      }
+
+      input:checked + .slider:before {
+        transform: translateX(16px);
+        background-color: white;
+      }
+
+      .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background-color: var(--border-color);
+        margin-right: 8px;
+      }
+
+      .active {
+        background-color: var(--success-color);
+      }
+
+      .status {
+        font-size: 11px;
+        color: var(--text-secondary);
+        text-align: center;
+        padding: 8px;
+        border-top: 1px solid var(--border-color);
+      }
+
+      .device-info {
+        display: flex;
+        align-items: center;
+      }
+
+      .debug-badge {
+        display: inline-block;
+        padding: 2px 6px;
+        border-radius: 4px;
+        background-color: var(--bg-color);
+        margin-left: 5px;
+        font-size: 10px;
+      }
+
+      /* Pulsing animation for the metronome */
+      @keyframes pulse {
+        0% {
+          transform: scale(1);
+        }
+        50% {
+          transform: scale(1.05);
+        }
+        100% {
+          transform: scale(1);
+        }
+      }
+
+      .pulsing {
+        animation: pulse 0.5s infinite;
+      }
+
+      .footer-actions {
+        display: flex;
+        justify-content: space-between;
+        padding: 10px 15px;
+        border-top: 1px solid var(--border-color);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <div class="app-title">
+          <img src="../assets/icon.png" alt="MIDI Clock" />
+          MIDI Clock
+        </div>
+        <div class="header-controls non-draggable">
+          <button id="refresh-devices" class="icon-btn" title="Refresh Devices">
+            ↻
+          </button>
+          <button id="debug-toggle" class="icon-btn" title="Debug Mode">
+            ⚙
+          </button>
+        </div>
+      </header>
+
+      <div class="main">
+        <div class="controls">
+          <div class="bpm-display" id="bpm-display">120</div>
+
+          <div class="bpm-controls non-draggable">
+            <button id="bpm-down" class="icon-btn">−</button>
+            <input
+              type="range"
+              min="30"
+              max="300"
+              value="120"
+              class="bpm-slider"
+              id="bpm-slider"
+            />
+            <button id="bpm-up" class="icon-btn">+</button>
+          </div>
+
+          <div class="transport-controls non-draggable">
+            <button id="start-btn" class="primary">Start</button>
+            <button id="stop-btn" disabled>Stop</button>
+            <button id="reset-btn">Restart</button>
+          </div>
+        </div>
+
+        <div class="device-list">
+          <h2>MIDI Devices</h2>
+          <div id="devices-container" class="non-draggable"></div>
+        </div>
+
+        <div id="debug-panel" class="debug-panel" style="display: none">
+          <div id="log-container"></div>
+        </div>
+      </div>
+
+      <div class="footer-actions">
+        <button id="connect-all" class="non-draggable">Connect All</button>
+        <div id="status" class="non-draggable">Ready</div>
+      </div>
+    </div>
+
+    <script>
+      const { ipcRenderer } = require("electron");
+
+      // Elements
+      const bpmDisplay = document.getElementById("bpm-display");
+      const bpmSlider = document.getElementById("bpm-slider");
+      const bpmDownBtn = document.getElementById("bpm-down");
+      const bpmUpBtn = document.getElementById("bpm-up");
+      const startBtn = document.getElementById("start-btn");
+      const stopBtn = document.getElementById("stop-btn");
+      const resetBtn = document.getElementById("reset-btn");
+      const devicesContainer = document.getElementById("devices-container");
+      const refreshDevicesBtn = document.getElementById("refresh-devices");
+      const connectAllBtn = document.getElementById("connect-all");
+      const statusEl = document.getElementById("status");
+      const debugToggleBtn = document.getElementById("debug-toggle");
+      const debugPanel = document.getElementById("debug-panel");
+      const logContainer = document.getElementById("log-container");
+
+      // State
+      let currentBPM = 120;
+      let isPlaying = false;
+      let pulseInterval;
+      let debugMode = false;
+      const debugLog = [];
+
+      // Initialize UI
+      function init() {
+        // Get initial clock status from main process
+        const status = ipcRenderer.sendSync("get-clock-status");
+        isPlaying = status.isRunning;
+        currentBPM = status.currentBPM;
+
+        // Update UI to match state
+        updateBPMDisplay(currentBPM);
+        updateTransportButtons(isPlaying);
+
+        // Set a default status while loading
+        updateStatus("Connecting to MIDI devices...");
+
+        // First connect to all devices and refresh device list
+        setTimeout(() => {
+          const success = connectToAllDevices();
+          loadMIDIDevices(); // Always load the devices regardless of connection success
+
+          if (success) {
+            updateStatus("Connected to all MIDI devices");
+          } else {
+            updateStatus("Warning: Some devices may not be connected");
+          }
+
+          setupEventListeners();
+
+          // Set up periodic device refresh
+          setInterval(() => {
+            loadMIDIDevices();
+          }, 5000); // Check for new devices every 5 seconds
+        }, 500);
+      }
+
+      // Update BPM display
+      function updateBPMDisplay(bpm) {
+        bpmDisplay.textContent = bpm;
+        bpmSlider.value = bpm;
+      }
+
+      // Update transport buttons state
+      function updateTransportButtons(playing) {
+        if (playing) {
+          startBtn.disabled = true;
+          stopBtn.disabled = false;
+          startPulsing();
+        } else {
+          startBtn.disabled = false;
+          stopBtn.disabled = true;
+          stopPulsing();
+        }
+      }
+
+      // Handle messages from main process
+      ipcRenderer.on("clock-started", () => {
+        isPlaying = true;
+        updateTransportButtons(true);
+        addLogEntry("Clock started from menu");
+      });
+
+      ipcRenderer.on("clock-stopped", () => {
+        isPlaying = false;
+        updateTransportButtons(false);
+        addLogEntry("Clock stopped from menu");
+      });
+
+      ipcRenderer.on("clock-restarted", () => {
+        addLogEntry("Clock restarted from menu");
+      });
+
+      ipcRenderer.on("bpm-changed", (event, newBpm) => {
+        currentBPM = newBpm;
+        updateBPMDisplay(newBpm);
+        addLogEntry(`BPM changed from menu: ${newBpm}`);
+      });
+
+      ipcRenderer.on("clock-status", (event, status) => {
+        isPlaying = status.isRunning;
+        currentBPM = status.currentBPM;
+        updateBPMDisplay(currentBPM);
+        updateTransportButtons(isPlaying);
+      });
+
+      // Request current status when window is shown
+      window.addEventListener("focus", () => {
+        ipcRenderer.send("request-clock-status");
+      });
+
+      // Load available MIDI devices
+      function loadMIDIDevices() {
+        const ports = ipcRenderer.sendSync("get-midi-ports");
+        devicesContainer.innerHTML = "";
+
+        if (ports.length === 0) {
+          devicesContainer.innerHTML = "<p>No MIDI devices found</p>";
+          return;
+        }
+
+        ports.forEach((port) => {
+          const deviceEl = document.createElement("div");
+          deviceEl.className = "device";
+
+          // Use different styling for TR-8S to make it stand out
+          const isTR8S =
+            port.name.includes("TR-8S") && !port.name.includes("CTRL");
+
+          deviceEl.innerHTML = `
+            <div class="device-info">
+              <div class="status-dot ${port.connected ? "active" : ""}"></div>
+              <span>${port.name}</span>
+              ${isTR8S ? '<span class="debug-badge">TR-8S</span>' : ""}
+            </div>
+            <label class="switch">
+              <input type="checkbox" class="device-toggle" data-port-id="${
+                port.id
+              }" ${port.connected ? "checked" : ""}>
+              <span class="slider"></span>
+            </label>
+          `;
+          devicesContainer.appendChild(deviceEl);
+        });
+
+        // Add event listeners to toggle switches
+        document.querySelectorAll(".device-toggle").forEach((toggle) => {
+          toggle.addEventListener("change", (e) => {
+            const portId = parseInt(e.target.getAttribute("data-port-id"));
+            const isEnabled = e.target.checked;
+
+            if (isEnabled) {
+              enableDevice(portId);
+            } else {
+              disableDevice(portId);
+            }
+          });
+        });
+      }
+
+      // Update BPM display and send to main process
+      function updateBPM(newBPM) {
+        currentBPM = parseInt(newBPM);
+        bpmDisplay.textContent = currentBPM;
+        bpmSlider.value = currentBPM;
+        ipcRenderer.send("update-bpm", currentBPM);
+      }
+
+      // Start the clock
+      function startClock() {
+        if (!isPlaying) {
+          isPlaying = true;
+          startBtn.disabled = true;
+          stopBtn.disabled = false;
+          ipcRenderer.send("start-clock");
+          startPulsing();
+          updateStatus("Clock started");
+          addLogEntry("Started MIDI clock at " + currentBPM + " BPM");
+        }
+      }
+
+      // Stop the clock
+      function stopClock() {
+        if (isPlaying) {
+          isPlaying = false;
+          startBtn.disabled = false;
+          stopBtn.disabled = true;
+          ipcRenderer.send("stop-clock");
+          stopPulsing();
+          updateStatus("Clock stopped");
+          addLogEntry("Stopped MIDI clock");
+        }
+      }
+
+      // Reset functionality - resends start signals to all devices
+      function restartClock() {
+        console.log("Restarting MIDI clock");
+        if (isPlaying) {
+          // Send stop then start to reset all devices
+          ipcRenderer.send("stop-clock");
+          setTimeout(() => {
+            ipcRenderer.send("start-clock");
+            updateStatus("Clock restarted - all devices resynced");
+            addLogEntry("Restarted MIDI clock");
+          }, 100);
+        } else {
+          // Just send a reset signal
+          ipcRenderer.send("reset-devices");
+          updateStatus("Reset signal sent to all devices");
+          addLogEntry("Reset signal sent");
+        }
+      }
+
+      // Visual metronome pulsing
+      function startPulsing() {
+        stopPulsing();
+        const pulseDuration = 60000 / currentBPM;
+        bpmDisplay.classList.add("pulsing");
+        // Set the animation duration based on BPM
+        bpmDisplay.style.animationDuration = `${pulseDuration}ms`;
+      }
+
+      function stopPulsing() {
+        bpmDisplay.classList.remove("pulsing");
+      }
+
+      // Update status message
+      function updateStatus(message) {
+        statusEl.textContent = message;
+        setTimeout(() => {
+          statusEl.textContent = isPlaying ? "Running" : "Ready";
+        }, 2000);
+      }
+
+      // Add a debug log entry
+      function addLogEntry(message) {
+        if (!debugMode) return;
+
+        const time = new Date().toLocaleTimeString();
+        debugLog.push({ time, message });
+
+        // Keep log size reasonable
+        if (debugLog.length > 100) {
+          debugLog.shift();
+        }
+
+        updateDebugDisplay();
+      }
+
+      // Update the debug display
+      function updateDebugDisplay() {
+        if (!debugMode) return;
+
+        logContainer.innerHTML = "";
+
+        debugLog.forEach((entry) => {
+          const logEntry = document.createElement("div");
+          logEntry.className = "log-entry";
+          logEntry.innerHTML = `<span class="log-time">${entry.time}</span> ${entry.message}`;
+          logContainer.appendChild(logEntry);
+        });
+
+        // Scroll to bottom
+        debugPanel.scrollTop = debugPanel.scrollHeight;
+      }
+
+      // Enable a device
+      function enableDevice(portId) {
+        const success = ipcRenderer.sendSync("open-midi-port", portId);
+
+        if (success) {
+          updateDeviceStatus(portId, true);
+          addLogEntry(`Enabled device with port ID ${portId}`);
+        } else {
+          updateStatus("Failed to connect to device");
+          addLogEntry(`Failed to enable device with port ID ${portId}`);
+        }
+      }
+
+      // Disable a device
+      function disableDevice(portId) {
+        ipcRenderer.sendSync("close-midi-port", portId);
+        updateDeviceStatus(portId, false);
+        addLogEntry(`Disabled device with port ID ${portId}`);
+      }
+
+      // Update device status in UI
+      function updateDeviceStatus(portId, isActive) {
+        const toggle = document.querySelector(
+          `.device-toggle[data-port-id="${portId}"]`
+        );
+        if (toggle) {
+          toggle.checked = isActive;
+          const dot = toggle.closest(".device").querySelector(".status-dot");
+
+          if (dot) {
+            if (isActive) {
+              dot.classList.add("active");
+            } else {
+              dot.classList.remove("active");
+            }
+          }
+        }
+      }
+
+      // Connect to all devices via virtual port
+      function connectToAllDevices() {
+        console.log("Attempting to connect to all MIDI devices");
+        const success = ipcRenderer.sendSync("open-all-midi-ports");
+
+        if (success) {
+          console.log("Successfully connected to all devices");
+          // Mark all devices as active
+          document.querySelectorAll(".status-dot").forEach((dot) => {
+            dot.classList.add("active");
+          });
+
+          updateStatus("Connected to all devices");
+          addLogEntry("Connected to all MIDI devices");
+          return true;
+        } else {
+          console.error("Failed to create virtual port");
+          updateStatus("Failed to connect to MIDI devices");
+          addLogEntry("Failed to connect to MIDI devices");
+          return false;
+        }
+      }
+
+      // Setup all event listeners
+      function setupEventListeners() {
+        // BPM slider
+        bpmSlider.addEventListener("input", (e) => {
+          updateBPM(e.target.value);
+          addLogEntry(`BPM changed by slider: ${e.target.value}`);
+        });
+
+        // BPM buttons
+        bpmDownBtn.addEventListener("click", () => {
+          const newBPM = Math.max(30, currentBPM - 1);
+          updateBPM(newBPM);
+          addLogEntry(`BPM decreased: ${currentBPM + 1} → ${currentBPM}`);
+        });
+
+        bpmUpBtn.addEventListener("click", () => {
+          const newBPM = Math.min(300, currentBPM + 1);
+          updateBPM(newBPM);
+          addLogEntry(`BPM increased: ${currentBPM - 1} → ${currentBPM}`);
+        });
+
+        // Transport controls
+        startBtn.addEventListener("click", () => {
+          startClock();
+          addLogEntry(`START button pressed, BPM=${currentBPM}`);
+        });
+
+        stopBtn.addEventListener("click", () => {
+          stopClock();
+          addLogEntry(`STOP button pressed`);
+        });
+
+        resetBtn.addEventListener("click", () => {
+          restartClock();
+          addLogEntry(`RESTART button pressed`);
+        });
+
+        // Device controls
+        refreshDevicesBtn.addEventListener("click", () => {
+          loadMIDIDevices();
+          addLogEntry(`Refreshed device list`);
+        });
+
+        connectAllBtn.addEventListener("click", () => {
+          connectToAllDevices();
+          addLogEntry(`Connected to all devices`);
+        });
+
+        // Debug toggle
+        debugToggleBtn.addEventListener("click", () => {
+          debugMode = !debugMode;
+          debugPanel.style.display = debugMode ? "block" : "none";
+
+          if (debugMode) {
+            addLogEntry("Debug mode enabled");
+            updateDebugDisplay();
+          }
+        });
+
+        // Keyboard shortcuts
+        document.addEventListener("keydown", (e) => {
+          if (e.code === "Space") {
+            if (isPlaying) {
+              stopClock();
+              addLogEntry(`SPACE pressed - stopping`);
+            } else {
+              startClock();
+              addLogEntry(`SPACE pressed - starting, BPM=${currentBPM}`);
+            }
+          }
+        });
+      }
+
+      // Initialize the app
+      init();
+    </script>
+  </body>
+</html>

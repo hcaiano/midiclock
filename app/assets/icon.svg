@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle with gradient -->
+  <circle cx="512" cy="512" r="450" fill="url(#grad1)" />
+  
+  <!-- Play button shape -->
+  <path d="M710 512L410 691.96L410 332.04L710 512Z" fill="white"/>
+  
+  <!-- Clock lines -->
+  <path d="M512 180V220" stroke="white" stroke-width="24" stroke-linecap="round"/>
+  <path d="M512 804V844" stroke="white" stroke-width="24" stroke-linecap="round"/>
+  <path d="M180 512H220" stroke="white" stroke-width="24" stroke-linecap="round"/>
+  <path d="M804 512H844" stroke="white" stroke-width="24" stroke-linecap="round"/>
+  
+  <!-- Clock circle -->
+  <circle cx="512" cy="512" r="320" stroke="white" stroke-width="24" fill="none"/>
+  
+  <!-- MIDI text -->
+  <path d="M240 250L240 335C240 335 274 305 310 305C346 305 380 335 380 335L380 250" stroke="white" stroke-width="36" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  
+  <!-- Gradient definition -->
+  <defs>
+    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#007AFF;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#034078;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+</svg> 
