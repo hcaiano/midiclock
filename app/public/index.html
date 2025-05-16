@@ -30,13 +30,13 @@
           Helvetica, Arial, sans-serif;
         margin: 0;
         padding: 0;
-        background-color: var(--bg-color);
+        background-color: transparent; /* For rounded corners on frameless window */
         color: var(--text-color);
         height: 100vh;
         overflow: hidden;
         user-select: none; /* Prevent text selection */
         -webkit-user-select: none;
-        -webkit-app-region: drag; /* Make the window draggable */
+        /* -webkit-app-region: drag; // Only needed if header is not full width or you want specific drag areas */
       }
 
       button,
@@ -51,17 +51,24 @@
         flex-direction: column;
         height: 100vh;
         width: 100%;
-        max-width: 360px;
+        max-width: 320px; /* Match window width */
         overflow: hidden;
+        background-color: var(--bg-color);
+        border-radius: 8px; /* Rounded corners for the popover */
+        border: 1px solid var(--border-color); /* Subtle border */
+        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2); /* Popover shadow */
       }
 
       header {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 15px;
+        padding: 10px 12px; /* Adjusted padding */
         border-bottom: 1px solid var(--border-color);
-        background-color: var(--bg-color);
+        background-color: var(
+          --bg-secondary
+        ); /* Slightly different header bg */
+        -webkit-app-region: drag; /* Make header draggable */
       }
 
       .app-title {
@@ -405,31 +412,21 @@
         isPlaying = status.isRunning;
         currentBPM = status.currentBPM;
 
-        // Update UI to match state
         updateBPMDisplay(currentBPM);
         updateTransportButtons(isPlaying);
 
-        // Set a default status while loading
-        updateStatus("Connecting to MIDI devices...");
+        updateStatus(isPlaying ? "Running" : "Ready");
 
-        // First connect to all devices and refresh device list
-        setTimeout(() => {
-          const success = connectToAllDevices();
-          loadMIDIDevices(); // Always load the devices regardless of connection success
+        // Load devices once on init
+        // The main process handles MIDI setup on app start.
+        // The popover just reflects the current state when it opens.
+        loadMIDIDevices();
 
-          if (success) {
-            updateStatus("Connected to all MIDI devices");
-          } else {
-            updateStatus("Warning: Some devices may not be connected");
-          }
+        setupEventListeners();
 
-          setupEventListeners();
-
-          // Set up periodic device refresh
-          setInterval(() => {
-            loadMIDIDevices();
-          }, 5000); // Check for new devices every 5 seconds
-        }, 500);
+        // Request current status when window is shown (e.g., after being hidden)
+        // This ensures UI is synced if changes were made via context menu
+        ipcRenderer.send("request-clock-status");
       }
 
       // Update BPM display
@@ -481,9 +478,12 @@
         updateTransportButtons(isPlaying);
       });
 
-      // Request current status when window is shown
+      // Request current status when window gains focus (becomes visible)
+      // This is important because the window can be hidden and then reshown.
       window.addEventListener("focus", () => {
+        console.log("Window focused, requesting clock status.");
         ipcRenderer.send("request-clock-status");
+        loadMIDIDevices(); // Refresh device list when window is shown
       });
 
       // Load available MIDI devices

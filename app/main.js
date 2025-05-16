@@ -39,124 +39,173 @@ app.on("ready", () => {
 
 // Create the tray icon and menu
 function createTray() {
-  // Create an icon from the PNG file
-  const iconPath = path.join(__dirname, "assets", "icon.png");
-  let icon;
+  const iconPath = path.resolve(__dirname, "assets", "icon.png");
+  let iconImage;
 
+  console.log("Attempting to load tray icon from:", iconPath);
   if (fs.existsSync(iconPath)) {
-    icon = nativeImage.createFromPath(iconPath);
+    iconImage = nativeImage.createFromPath(iconPath);
+    console.log("Successfully loaded custom tray icon.");
   } else {
-    // Fallback to a built-in template icon if our icon is missing
-    icon = nativeImage.createFromNamedImage("NSTouchBarAudioOutputTemplate");
+    console.warn(
+      "Custom tray icon not found at:",
+      iconPath,
+      ". Using fallback system icon."
+    );
+    iconImage = nativeImage.createFromNamedImage(
+      "NSTouchBarPlayTemplate",
+      [-1, 0, 0]
+    );
+    if (iconImage.isEmpty()) {
+      iconImage = nativeImage.createFromNamedImage(
+        "NSActionTemplate",
+        [-1, 0, 0]
+      );
+    }
   }
 
-  // Make the icon smaller to fit in the menu bar
-  const smallIcon = icon.resize({ width: 16, height: 16 });
-  smallIcon.setTemplateImage(true); // Use template mode for better dark mode support
+  if (iconImage.isEmpty()) {
+    console.error("Failed to load any tray icon. Tray will not be created.");
+    return;
+  }
 
-  // Create the tray icon
-  tray = new Tray(smallIcon);
+  const resizedIcon = iconImage.resize({ width: 18, height: 18 });
+  resizedIcon.setTemplateImage(true);
+
+  if (tray) {
+    tray.destroy();
+  }
+  tray = new Tray(resizedIcon);
   tray.setToolTip("MIDI Clock");
 
-  // Set up the tray menu
-  updateTrayMenu();
-
-  // Show the window when clicking the tray icon
-  tray.on("click", () => {
-    toggleWindow();
+  // Event handlers for tray clicks
+  tray.on("click", (event, bounds) => {
+    console.log("Tray icon left-clicked.");
+    const contextMenu = updateTrayMenu(
+      bpm,
+      clockRunning,
+      mainWindow && mainWindow.isVisible()
+    );
+    if (contextMenu) {
+      tray.popUpContextMenu(contextMenu, bounds);
+    }
   });
+
+  tray.on("right-click", (event, bounds) => {
+    console.log("Tray icon right-clicked.");
+    const contextMenu = updateTrayMenu(
+      bpm,
+      clockRunning,
+      mainWindow && mainWindow.isVisible()
+    );
+    if (contextMenu) {
+      tray.popUpContextMenu(contextMenu, bounds);
+    }
+  });
+
+  // Set initial context menu (primarily for systems that might show it differently)
+  updateTrayMenu(bpm, clockRunning, false);
+  console.log("Tray icon and menu created successfully.");
 }
 
-// Update the tray context menu with current state
-function updateTrayMenu(bpm = 120, isPlaying = false) {
-  const contextMenu = Menu.buildFromTemplate([
+// Update the tray context menu with current state and RETURN the menu
+function updateTrayMenu(currentBpm, currentIsPlaying, isWindowVisible) {
+  const contextMenuTemplate = [
     {
-      label: `MIDI Clock ${isPlaying ? "Running" : "Stopped"}`,
+      label: `MIDI Clock ${currentIsPlaying ? "Running" : "Stopped"}`,
       enabled: false,
     },
     {
-      label: `BPM: ${bpm}`,
+      label: `BPM: ${currentBpm}`,
       enabled: false,
     },
     { type: "separator" },
     {
-      label: isPlaying ? "Stop" : "Start",
+      label: currentIsPlaying ? "Stop Clock" : "Start Clock",
       click: () => {
-        if (isPlaying) {
+        if (currentIsPlaying) {
           stopClock();
-          mainWindow.webContents.send("clock-stopped");
+          if (mainWindow) mainWindow.webContents.send("clock-stopped");
         } else {
           startClock();
-          mainWindow.webContents.send("clock-started");
+          if (mainWindow) mainWindow.webContents.send("clock-started");
         }
-        // Update menu again with new state
-        updateTrayMenu(bpm, !isPlaying);
       },
     },
     {
-      label: "Restart",
+      label: "Restart Devices",
       click: () => {
         restartDevices();
-        mainWindow.webContents.send("clock-restarted");
+        if (mainWindow) mainWindow.webContents.send("clock-restarted");
       },
     },
     { type: "separator" },
     {
-      label: "BPM +",
+      label: "Increase BPM (+)",
       click: () => {
-        const newBpm = Math.min(bpm + 1, 300);
+        const newBpm = Math.min(currentBpm + 1, 300);
         updateBPM(newBpm);
-        mainWindow.webContents.send("bpm-changed", newBpm);
-        updateTrayMenu(newBpm, isPlaying);
+        if (mainWindow) mainWindow.webContents.send("bpm-changed", newBpm);
       },
     },
     {
-      label: "BPM -",
+      label: "Decrease BPM (-)",
       click: () => {
-        const newBpm = Math.max(bpm - 1, 30);
+        const newBpm = Math.max(currentBpm - 1, 30);
         updateBPM(newBpm);
-        mainWindow.webContents.send("bpm-changed", newBpm);
-        updateTrayMenu(newBpm, isPlaying);
+        if (mainWindow) mainWindow.webContents.send("bpm-changed", newBpm);
       },
     },
     { type: "separator" },
     {
-      label: "Show App",
-      click: showWindow,
+      label: isWindowVisible ? "Hide Controls" : "Show Controls",
+      click: () => {
+        // Ensure tray is available when getting bounds
+        const trayBounds = tray ? tray.getBounds() : null;
+        toggleWindow(trayBounds);
+      },
     },
     {
-      label: "Quit",
+      label: "Quit MIDI Clock",
       click: () => {
         isQuitting = true;
         app.quit();
       },
     },
-  ]);
+  ];
 
-  tray.setContextMenu(contextMenu);
+  const contextMenu = Menu.buildFromTemplate(contextMenuTemplate);
+  if (tray) {
+    tray.setContextMenu(contextMenu); // Set as the default for other interactions
+  }
+  return contextMenu; // Return the menu for explicit use with popUpContextMenu
 }
 
-// Create the browser window
+// Create the browser window (the popover)
 function createWindow() {
-  // Create the browser window
+  if (mainWindow) {
+    console.log("Main window already exists.");
+    return;
+  }
+  console.log("Creating main window...");
   mainWindow = new BrowserWindow({
-    width: 360,
-    height: 500,
-    show: false,
-    frame: false,
+    width: 320, // Slightly narrower for a more compact popover
+    height: 480, // Adjusted height
+    show: false, // Don't show immediately
+    frame: false, // No window frame (chromeless)
     fullscreenable: false,
     resizable: false,
-    transparent: false,
+    transparent: true, // Allows for rounded corners if CSS is set up
+    alwaysOnTop: true, // Keep popover on top
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
+      preload: path.join(__dirname, "preload.js"), // Optional: for secure IPC if needed later
     },
-    title: "MIDI Clock",
-    backgroundColor: "#2e2c29",
-    skipTaskbar: true,
+    skipTaskbar: true, // Don't show in the taskbar/dock
+    backgroundColor: "#00000000", // Required for transparency to work well with rounded CSS
   });
 
-  // Load the index.html file
   mainWindow.loadURL(
     url.format({
       pathname: path.join(__dirname, "public/index.html"),
@@ -165,59 +214,100 @@ function createWindow() {
     })
   );
 
-  // Hide the window when it loses focus
   mainWindow.on("blur", () => {
-    if (!mainWindow.webContents.isDevToolsOpened()) {
+    if (mainWindow && !mainWindow.webContents.isDevToolsOpened()) {
+      console.log("Main window lost focus, hiding.");
       mainWindow.hide();
     }
   });
 
-  // Handle window close event
   mainWindow.on("closed", () => {
+    console.log("Main window closed.");
     mainWindow = null;
-    stopClock();
-    // Close all MIDI ports when app closes
-    for (const info of directOutputs) {
-      if (info.output.isPortOpen()) {
-        info.output.closePort();
-      }
-    }
+    // Do not stop clock or close ports here, app lives in tray
   });
+  console.log("Main window created.");
 }
 
 // Toggle the window visibility
-function toggleWindow() {
+function toggleWindow(bounds) {
+  if (!mainWindow) {
+    createWindow(); // Ensure window exists
+    // Wait for window to be ready before showing, to avoid flash of unstyled content
+    mainWindow.once("ready-to-show", () => {
+      showWindow(bounds);
+    });
+    return;
+  }
+
   if (mainWindow.isVisible()) {
+    console.log("Window is visible, hiding it.");
     mainWindow.hide();
   } else {
-    showWindow();
+    console.log("Window is hidden, showing it.");
+    showWindow(bounds);
   }
 }
 
-// Show the window, positioned below the tray icon
-function showWindow() {
+// Show the window, positioned near the tray icon
+function showWindow(trayBounds) {
   if (!mainWindow) {
-    createWindow();
+    console.warn("showWindow called but mainWindow does not exist.");
+    createWindow(); // Create it if it doesn't exist
+    mainWindow.once("ready-to-show", () => {
+      positionAndShow(trayBounds);
+    });
+    return;
   }
+  positionAndShow(trayBounds);
+}
 
-  // Position window below the tray icon
-  const trayBounds = tray.getBounds();
+function positionAndShow(trayBounds) {
+  if (!mainWindow) return;
+  const currentTrayBounds =
+    trayBounds ||
+    (tray ? tray.getBounds() : { x: 0, y: 0, width: 0, height: 0 });
   const windowBounds = mainWindow.getBounds();
-  const x = Math.round(
-    trayBounds.x + trayBounds.width / 2 - windowBounds.width / 2
+
+  // Attempt to position window centered below tray icon
+  let x = Math.round(
+    currentTrayBounds.x + currentTrayBounds.width / 2 - windowBounds.width / 2
   );
-  const y = Math.round(trayBounds.y + trayBounds.height);
+  let y = Math.round(currentTrayBounds.y + currentTrayBounds.height + 4); // 4px margin
+
+  // Ensure window is within screen bounds
+  const { screen } = require("electron");
+  const display = screen.getDisplayNearestPoint({
+    x: currentTrayBounds.x,
+    y: currentTrayBounds.y,
+  });
+  const displayBounds = display.workArea;
+
+  if (x < displayBounds.x) x = displayBounds.x;
+  if (y < displayBounds.y) y = displayBounds.y; // Should not happen for tray menu
+  if (x + windowBounds.width > displayBounds.x + displayBounds.width) {
+    x = displayBounds.x + displayBounds.width - windowBounds.width;
+  }
+  if (y + windowBounds.height > displayBounds.y + displayBounds.height) {
+    y = displayBounds.y + displayBounds.height - windowBounds.height;
+  }
 
   mainWindow.setPosition(x, y, false);
   mainWindow.show();
   mainWindow.focus();
+  console.log("Window shown and focused at", { x, y });
 }
 
 // Prevent the app from quitting when all windows are closed
-app.on("window-all-closed", (event) => {
-  // Keep the app running in the background
-  if (!isQuitting) {
-    event.preventDefault();
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin" && !isQuitting) {
+    // On non-macOS, if not quitting, this usually means user closed last window.
+    // For a tray app, we might want to keep it running or quit.
+    // For now, let it quit if not macOS and not initiated by menu.
+    // app.quit(); // Or keep it running: event.preventDefault();
+  } else if (!isQuitting) {
+    // On macOS, prevent default behavior of quitting when window closes
+    // event.preventDefault(); // Already handled by `isQuitting` logic
   }
 });
 
@@ -237,7 +327,9 @@ app.on("before-quit", () => {
 // MIDI Clock implementation
 let clockRunning = false;
 let bpm = 120;
-let tickInterval = null;
+let tickCount = 0;
+let expectedTickTime = 0;
+let clockTimerId = null; // For setTimeout
 
 // MIDI messages
 const MIDI_CLOCK = 0xf8;
@@ -453,10 +545,40 @@ function sendMIDIMessage(message) {
   return sent;
 }
 
+// High-precision MIDI clock tick function
+function midiTick() {
+  if (!clockRunning) return;
+
+  const now = performance.now();
+  let nextDelay = 0;
+
+  // Send MIDI Clock pulse
+  const sent = sendMIDIMessage([MIDI_CLOCK]);
+  if (!sent) {
+    console.error(
+      "MIDI clock tick: Failed to send MIDI_CLOCK. Attempting to reconnect."
+    );
+    setupMIDI(); // Attempt to recover MIDI connection
+  }
+
+  tickCount++;
+
+  // Calculate the time for the next tick precisely
+  const tickIntervalMs = (60 * 1000) / bpm / 24; // 24 PPQN
+  expectedTickTime += tickIntervalMs;
+  nextDelay = Math.max(0, expectedTickTime - now);
+
+  // Schedule the next tick
+  if (clockRunning) {
+    clockTimerId = setTimeout(midiTick, nextDelay);
+  }
+}
+
 // Start MIDI clock
 function startClock() {
   if (clockRunning) {
-    stopClock();
+    console.log("Clock already running. Restarting with current BPM.");
+    stopClock(); // Stop first to ensure clean restart
   }
 
   console.log("Starting MIDI clock at BPM:", bpm);
@@ -466,30 +588,29 @@ function startClock() {
 
   if (!startSent) {
     console.error("Failed to send MIDI start message - reopening ports");
-    setupMIDI();
-    sendMIDIMessage([MIDI_START]);
+    setupMIDI(); // Attempt to recover
+    if (!sendMIDIMessage([MIDI_START])) {
+      console.error(
+        "Still failed to send MIDI start after recovery. Clock not starting."
+      );
+      updateTrayMenu(bpm, false, mainWindow && mainWindow.isVisible()); // Reflect that clock couldn't start
+      return;
+    }
   }
 
-  // Calculate interval in milliseconds
-  const intervalMs = Math.floor(60000 / bpm / 24);
-
-  // Start the clock
   clockRunning = true;
+  tickCount = 0;
+  expectedTickTime = performance.now(); // Initialize expected time for the first tick
 
-  // Use a simple interval for reliability
-  tickInterval = setInterval(() => {
-    const sent = sendMIDIMessage([MIDI_CLOCK]);
+  // Start the precise tick loop
+  midiTick();
 
-    if (!sent) {
-      console.error("Failed to send MIDI clock - attempting to reconnect");
-      setupMIDI();
-    }
-  }, intervalMs);
-
-  console.log("MIDI clock started with interval:", intervalMs, "ms");
-
-  // Update tray menu to reflect running state
-  updateTrayMenu(bpm, true);
+  console.log(
+    "MIDI clock started. Tick interval target based on BPM:",
+    (60 * 1000) / bpm / 24,
+    "ms"
+  );
+  updateTrayMenu(bpm, true, mainWindow && mainWindow.isVisible());
 }
 
 // Stop MIDI clock
@@ -497,66 +618,54 @@ function stopClock() {
   if (!clockRunning) return;
 
   console.log("Stopping MIDI clock");
-
   clockRunning = false;
 
-  if (tickInterval) {
-    clearInterval(tickInterval);
-    tickInterval = null;
+  if (clockTimerId) {
+    clearTimeout(clockTimerId);
+    clockTimerId = null;
   }
 
   // Send MIDI Stop message to all outputs
   sendMIDIMessage([MIDI_STOP]);
-
-  // Update tray menu to reflect stopped state
-  updateTrayMenu(bpm, false);
+  console.log("Sent MIDI Stop message");
+  updateTrayMenu(bpm, false, mainWindow && mainWindow.isVisible());
 }
 
-// Continue MIDI clock
+// Continue MIDI clock (Placeholder - a true continue might need more state)
 function continueClock() {
-  if (clockRunning) return;
+  if (clockRunning) return; // Don't continue if already running
 
   console.log("Continuing MIDI clock at BPM:", bpm);
 
-  // Send MIDI Continue message to all outputs
+  // Send MIDI Continue message
   sendMIDIMessage([MIDI_CONTINUE]);
 
-  // Calculate interval in milliseconds
-  const intervalMs = Math.floor(60000 / bpm / 24);
-
-  // Start the clock
   clockRunning = true;
+  // For a true continue, you might need to resume tickCount from where it left off.
+  // For simplicity here, we restart the tick generation based on current time.
+  expectedTickTime = performance.now();
+  midiTick();
 
-  // Use a simple interval for reliability
-  tickInterval = setInterval(() => {
-    sendMIDIMessage([MIDI_CLOCK]);
-  }, intervalMs);
-
-  console.log("MIDI clock continued with interval:", intervalMs, "ms");
+  console.log("MIDI clock continued.");
+  updateTrayMenu(bpm, true, mainWindow && mainWindow.isVisible());
 }
 
 // Update BPM
 function updateBPM(newBPM) {
   console.log("Updating BPM from", bpm, "to", newBPM);
-
   const wasRunning = clockRunning;
 
-  // Stop the clock if it's running
   if (wasRunning) {
-    stopClock();
+    stopClock(); // Stop with old BPM timing
   }
 
-  // Update BPM
   bpm = newBPM;
 
-  // Restart if it was running
   if (wasRunning) {
-    startClock();
+    startClock(); // Restart with new BPM timing
   } else {
-    // Just update the menu if we're not running
-    updateTrayMenu(bpm, false);
+    updateTrayMenu(bpm, false, mainWindow && mainWindow.isVisible()); // Update menu if stopped
   }
-
   console.log("BPM updated to:", bpm);
 }
 
@@ -661,7 +770,7 @@ ipcMain.on("continue-clock", () => {
 ipcMain.on("update-bpm", (event, newBPM) => {
   updateBPM(newBPM);
   // Update tray menu when BPM changes from UI
-  updateTrayMenu(newBPM, clockRunning);
+  updateTrayMenu(newBPM, clockRunning, mainWindow && mainWindow.isVisible());
 });
 
 ipcMain.on("get-clock-status", (event) => {
@@ -669,6 +778,8 @@ ipcMain.on("get-clock-status", (event) => {
     isRunning: clockRunning,
     currentBPM: bpm,
   };
+  // Update tray menu in case window visibility changed
+  updateTrayMenu(bpm, clockRunning, mainWindow && mainWindow.isVisible());
 });
 
 ipcMain.on("request-clock-status", (event) => {
@@ -676,6 +787,8 @@ ipcMain.on("request-clock-status", (event) => {
     isRunning: clockRunning,
     currentBPM: bpm,
   });
+  // Update tray menu in case window visibility changed
+  updateTrayMenu(bpm, clockRunning, mainWindow && mainWindow.isVisible());
 });
 
 ipcMain.on("get-midi-ports", (event) => {
